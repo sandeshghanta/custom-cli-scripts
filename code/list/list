@@ -1,0 +1,106 @@
+#!/bin/bash
+
+usage() {
+  echo "Usage: list [ -a=action ] [ -t=type ] [-r] [ -p=path ] [ -n=regex ]"
+  echo "Documentation:
+  -a : Repersents the kind of action that has to take place, supported values are
+        'list'  : lists the selected files or directories [Default],
+        'del'   : deletes the selected files or directories.
+
+  -t : Represents the type of content to display, supported values are
+        'all'   : both files and dirs will be selected [Default],
+        'files' : only files will be selected
+        'dirs'  : only directories will be selected
+
+  -p : Represents the path where the list command is to be executed, default value is . or pwd
+
+  -r : If -r is passed then recursive dfs search would be enabled, by default -r is unset
+
+  -n : Represents the kind of name the items which should be selected should have, pass regex using this option, action will be applied only on items whose name satisfies the passed regex. If no regex is passed action will be applied on all items. Supports '[', ']', '*' and '?' pattern matching characters, these characters may be matched explicitly by escaping them with backslash '\'
+
+  "
+}
+
+set_variable() {
+  local varname=$1
+  shift
+  if [ -z "${!varname}" ]; then
+    eval "$varname=\"$@\""
+  else
+    echo "Error: $varname already set"
+    usage
+  fi
+}
+
+
+# Using PPATH as PATH variable already exists
+unset ACTION TYPE RECURSIVE PPATH REGEX
+
+while getopts 'p:a:t:n:rh' c
+do
+  case $c in
+    a)
+	OPTARG="${OPTARG:1}"
+	if [ $OPTARG == "list" ]; then
+		set_variable ACTION "list"
+	elif [ $OPTARG == "del" ]; then
+		set_variable ACTION "del"
+	else
+	    echo "Acceptable values for -a are 'list' and 'del'. Get help by using $0 -h"
+	    exit 2
+	fi
+	;;
+
+
+    t)
+	OPTARG="${OPTARG:1}"
+	if [ $OPTARG == "all" ]; then
+		#by default both files and directories are retrieved, so no need to set any filter
+		do_nothing=1
+	elif [ $OPTARG == "files" ]; then
+		set_variable TYPE "f";
+	elif [ $OPTARG == "dirs" ]; then
+		set_variable TYPE "d";
+	else
+	    echo "Acceptable values for -t are 'all', 'files' and 'dirs'. Get help by using $0 -h"
+	    exit 2
+	fi
+	;;
+
+    r)
+	set_variable RECURSIVE true ;;
+
+    p)
+	OPTARG="${OPTARG:1}"
+	set_variable PPATH "$OPTARG" ;;
+
+    n)
+	OPTARG="${OPTARG:1}"
+	set_variable REGEX "$OPTARG" ;;
+
+    h|?)
+	usage
+	exit 0
+	;;
+    esac
+done
+
+#set default values, if PPATH is provided, remove any trailing /
+if [ -z ${PPATH+x} ]; then PPATH="\$PWD"; else PPATH=`dirname $PPATH`/`basename $PPATH`; fi
+if [ -z ${ACTION+x} ]; then ACTION="list"; fi
+
+cmd="find"
+if [ ${PPATH+x} ]; then cmd="$cmd $PPATH"; fi
+if [ ${TYPE+x} ]; then cmd="$cmd -type $TYPE"; fi
+if [ -z ${RECURSIVE+x} ]; then cmd="$cmd -maxdepth 1"; fi
+if [ ${REGEX+x} ]; then cmd="$cmd -name \"$REGEX\""; fi
+if [ $ACTION == "list" ]; then
+   cmd="$cmd -print0 | while IFS= read -r -rd '' item; do if [ \$item != $PPATH ]; then ls -lAhdG \$item; fi; done";
+fi
+if [ $ACTION == "del" ]; then
+   cmd="$cmd -print0 | while IFS= read -r -rd '' item; do if [ \$item != $PPATH ]; then echo "\$item"; trash \$item; fi; done";
+fi
+
+echo "Equivalent find command: $cmd"
+if [ $ACTION == "del" ]; then echo "Removing"; fi
+eval $cmd
